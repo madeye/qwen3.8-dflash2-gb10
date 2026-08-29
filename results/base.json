@@ -1,0 +1,47 @@
+{
+  "label": "base",
+  "model": "qwen3.8-27b",
+  "max_tokens": 1024,
+  "temperature": 0.0,
+  "levels": [
+    {
+      "concurrency": 1,
+      "requests": 1,
+      "errors": 0,
+      "output_tokens": 137,
+      "wall_s": 11.91,
+      "system_output_tps": 11.5,
+      "per_request_output_tps_mean": 11.5,
+      "ttft_mean_s": 0.131,
+      "ttft_p50_s": 0.131,
+      "tpot_mean_ms": 86.61,
+      "decode_tps_per_request": 11.55
+    },
+    {
+      "concurrency": 4,
+      "requests": 4,
+      "errors": 0,
+      "output_tokens": 2709,
+      "wall_s": 93.13,
+      "system_output_tps": 29.09,
+      "per_request_output_tps_mean": 10.88,
+      "ttft_mean_s": 0.358,
+      "ttft_p50_s": 0.358,
+      "tpot_mean_ms": 91.34,
+      "decode_tps_per_request": 10.95
+    },
+    {
+      "concurrency": 8,
+      "requests": 8,
+      "errors": 0,
+      "output_tokens": 6644,
+      "wall_s": 97.55,
+      "system_output_tps": 68.11,
+      "per_request_output_tps_mean": 10.44,
+      "ttft_mean_s": 0.404,
+      "ttft_p50_s": 0.422,
+      "tpot_mean_ms": 95.4,
+      "decode_tps_per_request": 10.48
+    }
+  ]
+}

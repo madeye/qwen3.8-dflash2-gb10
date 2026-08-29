@@ -1,0 +1,10 @@
+# Model weights (~22 GB) — fetch with ./fetch_weights.sh
+models/
+
+# Python virtualenv
+.venv/
+__pycache__/
+*.pyc
+
+# Server logs
+*.log

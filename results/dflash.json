@@ -1,0 +1,62 @@
+{
+  "label": "dflash",
+  "model": "qwen3.8-27b",
+  "max_tokens": 1024,
+  "temperature": 0.0,
+  "levels": [
+    {
+      "concurrency": 1,
+      "requests": 1,
+      "errors": 0,
+      "output_tokens": 134,
+      "wall_s": 2.73,
+      "system_output_tps": 49.14,
+      "per_request_output_tps_mean": 49.15,
+      "ttft_mean_s": 0.275,
+      "ttft_p50_s": 0.275,
+      "tpot_mean_ms": 18.43,
+      "decode_tps_per_request": 54.26,
+      "spec_drafts": 21.0,
+      "spec_accepted_tokens": 113.0,
+      "spec_draft_tokens": 147.0,
+      "spec_acceptance_rate": 0.7687,
+      "acceptance_length": 6.381
+    },
+    {
+      "concurrency": 4,
+      "requests": 4,
+      "errors": 0,
+      "output_tokens": 2719,
+      "wall_s": 50.23,
+      "system_output_tps": 54.13,
+      "per_request_output_tps_mean": 33.74,
+      "ttft_mean_s": 0.492,
+      "ttft_p50_s": 0.528,
+      "tpot_mean_ms": 31.06,
+      "decode_tps_per_request": 32.2,
+      "spec_drafts": 718.0,
+      "spec_accepted_tokens": 2005.0,
+      "spec_draft_tokens": 5026.0,
+      "spec_acceptance_rate": 0.3989,
+      "acceptance_length": 3.792
+    },
+    {
+      "concurrency": 8,
+      "requests": 8,
+      "errors": 0,
+      "output_tokens": 6462,
+      "wall_s": 59.66,
+      "system_output_tps": 108.32,
+      "per_request_output_tps_mean": 28.31,
+      "ttft_mean_s": 0.656,
+      "ttft_p50_s": 0.678,
+      "tpot_mean_ms": 36.57,
+      "decode_tps_per_request": 27.34,
+      "spec_drafts": 1673.0,
+      "spec_accepted_tokens": 4792.0,
+      "spec_draft_tokens": 11711.0,
+      "spec_acceptance_rate": 0.4092,
+      "acceptance_length": 3.864
+    }
+  ]
+}
