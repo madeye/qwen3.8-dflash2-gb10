@@ -140,3 +140,8 @@ DFlash2's losslessness guarantee is distributional and assumes exact
 arithmetic; it does not promise bitwise-identical output under a quantized
 target with shape-dependent kernels. The correct check is that the final answer
 is unchanged, which it is.
+
+## License
+
+MIT — see [LICENSE](LICENSE). The benchmark harness is original work; the
+models it exercises carry their own upstream licenses.
