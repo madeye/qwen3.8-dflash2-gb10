@@ -5,6 +5,10 @@ block-diffusion drafter on one NVIDIA GB10 (Grace-Blackwell, 121 GB unified
 memory, aarch64). Qwen3.8's built-in MTP head is supported as an optional third
 configuration (`mtp`) but is off by default.
 
+**[Read the write-up →](https://madeye.github.io/qwen3.8-dflash2-gb10/)** — the
+results, the roofline argument behind them, and the losslessness caveat, on one
+page. Source for that page lives in [`docs/`](docs/).
+
 ## Stack
 
 | Component | Version / source |

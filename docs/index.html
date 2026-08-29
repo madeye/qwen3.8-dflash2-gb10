@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DFlash2 on GB10 — 4.70× decode speedup for Qwen3.8-27B</title>
+<meta name="description" content="Benchmarking DFlash2 block-diffusion speculative decoding against autoregressive decoding for Qwen3.8-27B-NVFP4 on one NVIDIA GB10 (DGX Spark): 4.70× single-stream decode speedup, 6.38 accepted tokens per step, answers unchanged.">
+
+<link rel="canonical" href="https://madeye.github.io/qwen3.8-dflash2-gb10/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://madeye.github.io/qwen3.8-dflash2-gb10/">
+<meta property="og:title" content="DFlash2 speculative decoding turns a bandwidth-bound GPU into a fast one">
+<meta property="og:description" content="Qwen3.8-27B-NVFP4 on one NVIDIA GB10: 4.70× single-stream decode speedup, 6.38 accepted tokens per verification step, user-visible answers character-identical.">
+<meta property="og:image" content="https://madeye.github.io/qwen3.8-dflash2-gb10/social-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="4.70× single-stream decode speedup — DFlash2 on NVIDIA GB10, with a bar chart comparing baseline and DFlash2 decode throughput at concurrency 1, 4 and 8.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="DFlash2 speculative decoding turns a bandwidth-bound GPU into a fast one">
+<meta name="twitter:description" content="Qwen3.8-27B-NVFP4 on one NVIDIA GB10: 4.70× single-stream decode speedup, 6.38 accepted tokens per verification step, answers unchanged.">
+<meta name="twitter:image" content="https://madeye.github.io/qwen3.8-dflash2-gb10/social-card.png">
+
+<style>
+  :root {
+    color-scheme: light;
+    --plane:        #f9f9f7;
+    --surface:      #fcfcfb;
+    --ink:          #0b0b0b;
+    --ink-2:        #52514e;
+    --muted:        #898781;
+    --grid:         #e1e0d9;
+    --axis:         #c3c2b7;
+    --border:       rgba(11,11,11,0.10);
+    --series-1:     #2a78d6;
+    --series-2:     #eb6834;
+    --good:         #0ca30c;
+    --warning:      #fab219;
+    --code-bg:      #f2f1ed;
+    --shadow:       0 1px 2px rgba(11,11,11,.05), 0 8px 24px rgba(11,11,11,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane:      #0d0d0d;
+      --surface:    #1a1a19;
+      --ink:        #ffffff;
+      --ink-2:      #c3c2b7;
+      --muted:      #898781;
+      --grid:       #2c2c2a;
+      --axis:       #383835;
+      --border:     rgba(255,255,255,0.10);
+      --series-1:   #3987e5;
+      --series-2:   #d95926;
+      --good:       #0ca30c;
+      --warning:    #fab219;
+      --code-bg:    #141413;
+      --shadow:     none;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", "Liberation Sans", sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- header ---------- */
+  header { padding: 72px 0 8px; }
+  .kicker {
+    font-size: 13px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  h1 {
+    font-size: clamp(30px, 5.2vw, 44px);
+    line-height: 1.16; letter-spacing: -.02em; font-weight: 700;
+    margin: 14px 0 0;
+  }
+  .standfirst {
+    font-size: clamp(17px, 2.3vw, 20px); color: var(--ink-2);
+    margin: 18px 0 0; max-width: 40em;
+  }
+  .meta {
+    margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 8px 20px;
+    font-size: 14px; color: var(--muted);
+  }
+  .meta a { color: var(--ink-2); }
+
+  /* ---------- hero figure ---------- */
+  .hero {
+    margin: 40px 0 0; padding: 32px 32px 30px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 44px;
+  }
+  .hero-num {
+    font-size: clamp(60px, 11vw, 92px); font-weight: 700;
+    letter-spacing: -.045em; line-height: .9;
+  }
+  .hero-cap { font-size: 17px; color: var(--ink-2); max-width: 22em; }
+  .hero-cap strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- stat tiles ---------- */
+  .tiles {
+    display: grid; gap: 14px; margin-top: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+  .tile {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow);
+  }
+  .tile .k { font-size: 13.5px; color: var(--muted); }
+  .tile .v { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin-top: 4px; line-height: 1.1; }
+  .tile .s { font-size: 13.5px; color: var(--ink-2); margin-top: 4px; }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 56px; }
+  h2 {
+    font-size: 25px; letter-spacing: -.015em; font-weight: 700;
+    margin: 0 0 6px; padding-top: 4px;
+  }
+  h3 { font-size: 19px; font-weight: 650; margin: 32px 0 6px; letter-spacing: -.01em; }
+  p { margin: 12px 0; }
+  .lede { color: var(--ink-2); margin-top: 0; }
+  a { color: var(--series-1); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 650; }
+
+  /* ---------- figure / chart ---------- */
+  figure {
+    margin: 26px 0 0; padding: 22px 22px 16px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow);
+  }
+  figcaption { font-size: 13.5px; color: var(--muted); margin-top: 12px; }
+  .fig-title { font-size: 16px; font-weight: 650; }
+  .fig-sub { font-size: 13.5px; color: var(--muted); margin-top: 2px; margin-bottom: 14px; }
+  .legend { display: flex; gap: 20px; margin-bottom: 10px; font-size: 14px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .bar { cursor: default; transition: opacity .12s ease; }
+  .chart:hover .bar { opacity: .5; }
+  .chart .bar:hover { opacity: 1; }
+
+  #tip {
+    position: fixed; z-index: 20; pointer-events: none; opacity: 0;
+    transition: opacity .1s ease;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 9px;
+    padding: 9px 12px; font-size: 13.5px; line-height: 1.5;
+    box-shadow: 0 6px 22px rgba(0,0,0,.18); max-width: 260px;
+  }
+  #tip .t { font-weight: 650; }
+  #tip .r { color: var(--ink-2); }
+
+  /* ---------- tables ---------- */
+  .scroll { overflow-x: auto; margin-top: 20px; -webkit-overflow-scrolling: touch; }
+  table {
+    border-collapse: collapse; width: 100%; min-width: 560px;
+    font-size: 14.5px; font-variant-numeric: tabular-nums;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  caption { text-align: left; font-size: 13.5px; color: var(--muted); padding-bottom: 9px; }
+  th, td { padding: 9px 14px; text-align: right; border-bottom: 1px solid var(--grid); }
+  th { font-weight: 650; color: var(--ink-2); font-size: 13px; letter-spacing: .02em; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: var(--code-bg); }
+  tbody tr:last-child td { border-bottom: 0; }
+  tr.spec td { background: color-mix(in srgb, var(--series-2) 7%, transparent); }
+  td.win { font-weight: 700; }
+  .dash { color: var(--muted); }
+  table.plain { min-width: 460px; }
+  table.plain td:first-child { white-space: nowrap; }
+  table.plain td, table.plain th { text-align: left; }
+
+  /* ---------- callouts ---------- */
+  .note {
+    margin-top: 22px; padding: 16px 18px; border-radius: 11px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--warning);
+    font-size: 15.5px;
+  }
+  .note .h { font-weight: 650; display: block; margin-bottom: 3px; }
+  .note.ok { border-left-color: var(--good); }
+
+  code {
+    font-family: ui-monospace, "Liberation Mono", "DejaVu Sans Mono", monospace;
+    font-size: .885em; background: var(--code-bg);
+    padding: .12em .38em; border-radius: 5px;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 11px; padding: 15px 17px; overflow-x: auto;
+    font-size: 14px; line-height: 1.6; margin-top: 16px;
+  }
+  pre code { background: none; padding: 0; font-size: 1em; }
+
+  footer {
+    margin-top: 72px; padding: 28px 0 64px;
+    border-top: 1px solid var(--border);
+    font-size: 14px; color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+  }
+  .sr {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Benchmark · NVIDIA GB10 · DGX Spark</div>
+  <h1>DFlash2 speculative decoding turns a bandwidth-bound GPU into a fast one</h1>
+  <p class="standfirst">
+    Qwen3.8-27B-NVFP4 on a single NVIDIA GB10 decodes at 11.5 tokens per second —
+    about 94% of what the memory bus allows. Adding the DFlash2 block-diffusion
+    drafter takes it to 54.3, without changing a character of the answer.
+  </p>
+  <div class="meta">
+    <span>29 August 2026</span>
+    <span>vLLM 0.28.0 · greedy · <code>max_tokens=1024</code></span>
+    <span><a href="https://github.com/madeye/qwen3.8-dflash2-gb10">Source &amp; raw results on GitHub</a></span>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="hero-num">4.70&times;</div>
+  <div class="hero-cap">
+    <strong>single-stream decode speedup</strong> at concurrency 1 — higher than the
+    3.43&times; the DFlash2 model card reports on an H200, and for a reason worth
+    understanding.
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile">
+    <div class="k">Peak decode rate</div>
+    <div class="v">54.26</div>
+    <div class="s">tok/s per request, up from 11.55</div>
+  </div>
+  <div class="tile">
+    <div class="k">Acceptance length</div>
+    <div class="v">6.38</div>
+    <div class="s">of a possible 8.0 with 7 draft tokens</div>
+  </div>
+  <div class="tile">
+    <div class="k">Baseline vs. roofline</div>
+    <div class="v">94%</div>
+    <div class="s">of the ~12 tok/s memory-bandwidth ceiling</div>
+  </div>
+</div>
+
+<!-- ============ RESULTS ============ -->
+<section id="results">
+  <h2>Results</h2>
+  <p class="lede">
+    Every number below is greedy decoding (<code>temperature=0</code>) at
+    <code>max_tokens=1024</code>, measured with a streaming client against a live
+    vLLM server. "Decode tok/s per request" is <code>1&nbsp;/&nbsp;TPOT</code> — the
+    single-stream speed a user actually feels.
+  </p>
+
+  <figure>
+    <div class="fig-title">Per-request decode speed, baseline vs. DFlash2</div>
+    <div class="fig-sub">Tokens per second for one request, by number of concurrent requests. Higher is better.</div>
+
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw" style="background:var(--series-1)"></i> base (autoregressive)</span>
+      <span><i class="sw" style="background:var(--series-2)"></i> dflash (speculative)</span>
+    </div>
+
+    <svg class="chart" viewBox="0 0 760 372" role="img"
+         aria-label="Grouped bar chart of decode tokens per second per request. At concurrency 1, baseline 11.55 and DFlash2 54.26. At concurrency 4, baseline 10.95 and DFlash2 32.20. At concurrency 8, baseline 10.48 and DFlash2 27.34. A reference line marks the roughly 12 tokens per second memory-bandwidth roofline.">
+
+      <!-- gridlines + y ticks -->
+      <g stroke="var(--grid)" stroke-width="1">
+        <line x1="56" y1="30"    x2="740" y2="30"/>
+        <line x1="56" y1="97.5"  x2="740" y2="97.5"/>
+        <line x1="56" y1="165"   x2="740" y2="165"/>
+        <line x1="56" y1="232.5" x2="740" y2="232.5"/>
+      </g>
+      <g fill="var(--muted)" font-size="12.5" text-anchor="end" style="font-variant-numeric:tabular-nums">
+        <text x="44" y="34.5">60</text>
+        <text x="44" y="102">45</text>
+        <text x="44" y="169.5">30</text>
+        <text x="44" y="237">15</text>
+        <text x="44" y="304.5">0</text>
+      </g>
+
+      <!-- baseline axis -->
+      <line x1="56" y1="300" x2="740" y2="300" stroke="var(--axis)" stroke-width="1"/>
+
+      <!-- memory-bandwidth roofline annotation -->
+      <line x1="56" y1="246" x2="740" y2="246" stroke="var(--muted)" stroke-width="1" stroke-dasharray="5 4"/>
+      <text x="432" y="262" fill="var(--muted)" font-size="12.5">≈12 tok/s roofline</text>
+
+      <!-- concurrency 1 -->
+      <path class="bar" d="M145,300 L145,252.02 Q145,248.02 149,248.02 L165,248.02 Q169,248.02 169,252.02 L169,300 Z"
+            fill="var(--series-1)" data-t="base · concurrency 1" data-r="11.55 tok/s per request · TPOT 86.61 ms"></path>
+      <path class="bar" d="M171,300 L171,59.83 Q171,55.83 175,55.83 L191,55.83 Q195,55.83 195,59.83 L195,300 Z"
+            fill="var(--series-2)" data-t="dflash · concurrency 1" data-r="54.26 tok/s per request · TPOT 18.43 ms · accept 6.38 · 4.70× faster"></path>
+      <text x="183" y="46" fill="var(--ink)" font-size="13.5" font-weight="650" text-anchor="middle">54.26</text>
+
+      <!-- concurrency 4 -->
+      <path class="bar" d="M373,300 L373,254.72 Q373,250.72 377,250.72 L393,250.72 Q397,250.72 397,254.72 L397,300 Z"
+            fill="var(--series-1)" data-t="base · concurrency 4" data-r="10.95 tok/s per request · TPOT 91.34 ms"></path>
+      <path class="bar" d="M399,300 L399,159.10 Q399,155.10 403,155.10 L419,155.10 Q423,155.10 423,159.10 L423,300 Z"
+            fill="var(--series-2)" data-t="dflash · concurrency 4" data-r="32.20 tok/s per request · TPOT 31.06 ms · accept 3.79 · 2.94× faster"></path>
+      <text x="411" y="145" fill="var(--ink)" font-size="13.5" font-weight="650" text-anchor="middle">32.20</text>
+
+      <!-- concurrency 8 -->
+      <path class="bar" d="M601,300 L601,256.84 Q601,252.84 605,252.84 L621,252.84 Q625,252.84 625,256.84 L625,300 Z"
+            fill="var(--series-1)" data-t="base · concurrency 8" data-r="10.48 tok/s per request · TPOT 95.40 ms"></path>
+      <path class="bar" d="M627,300 L627,180.97 Q627,176.97 631,176.97 L647,176.97 Q651,176.97 651,180.97 L651,300 Z"
+            fill="var(--series-2)" data-t="dflash · concurrency 8" data-r="27.34 tok/s per request · TPOT 36.57 ms · accept 3.86 · 2.61× faster"></path>
+      <text x="639" y="167" fill="var(--ink)" font-size="13.5" font-weight="650" text-anchor="middle">27.34</text>
+
+      <!-- x ticks -->
+      <g fill="var(--muted)" font-size="13" text-anchor="middle">
+        <text x="170" y="322">1</text>
+        <text x="398" y="322">4</text>
+        <text x="626" y="322">8</text>
+        <text x="398" y="350" font-size="12.5">concurrent requests</text>
+      </g>
+    </svg>
+
+    <figcaption>
+      The dashed line is the ~12 tok/s memory-bandwidth roofline. The baseline barely
+      moves as concurrency rises — it is pinned against the memory bus. DFlash2's
+      advantage shrinks because batching reclaims the same idle bandwidth speculation
+      was exploiting.
+    </figcaption>
+  </figure>
+
+  <div class="scroll">
+    <table>
+      <caption>Full run, 2026-08-29 · GB10 · greedy · max_tokens=1024</caption>
+      <thead>
+        <tr>
+          <th>Conc.</th><th>Config</th><th>Decode tok/s<br>per req</th><th>System<br>tok/s</th>
+          <th>TTFT s</th><th>TPOT ms</th><th>Accept<br>len</th><th>Speedup</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>base</td><td>11.55</td><td>11.50</td><td>0.131</td><td>86.61</td><td class="dash">–</td><td>1.00×</td></tr>
+        <tr class="spec"><td>1</td><td>dflash</td><td class="win">54.26</td><td>49.14</td><td>0.275</td><td>18.43</td><td class="win">6.38</td><td class="win">4.70×</td></tr>
+        <tr><td>4</td><td>base</td><td>10.95</td><td>29.09</td><td>0.358</td><td>91.34</td><td class="dash">–</td><td>1.00×</td></tr>
+        <tr class="spec"><td>4</td><td>dflash</td><td class="win">32.20</td><td>54.13</td><td>0.492</td><td>31.06</td><td>3.79</td><td class="win">2.94×</td></tr>
+        <tr><td>8</td><td>base</td><td>10.48</td><td>68.11</td><td>0.404</td><td>95.40</td><td class="dash">–</td><td>1.00×</td></tr>
+        <tr class="spec"><td>8</td><td>dflash</td><td class="win">27.34</td><td>108.32</td><td>0.656</td><td>36.57</td><td>3.86</td><td class="win">2.61×</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ WHY ============ -->
+<section id="why">
+  <h2>Why the single-stream gain is so large</h2>
+  <p>
+    GB10 has roughly <strong>273 GB/s</strong> of memory bandwidth. Decoding one token
+    means streaming all 22 GB of NVFP4 weights through it once, which puts a hard
+    ceiling near <strong>12 tok/s</strong>. The baseline measures 11.55 — about
+    <strong>94% of roofline</strong>. Decoding here is almost purely bandwidth-bound,
+    and the GPU's math units sit idle.
+  </p>
+  <p>
+    That is the ideal case for speculation. DFlash2 drafts 7 tokens and the target
+    verifies them in a single weight-streaming pass, committing 6.38 of them on
+    average. The idle FLOPs become tokens. The 4.70× here beats the 3.43× the z-lab
+    card reports on an H200 <em>precisely because</em> this box is more
+    bandwidth-starved than an H200 — there is simply more headroom to reclaim.
+  </p>
+  <p>
+    Acceptance length also beats the card's reported 4.4–5.5, for a duller reason:
+    those numbers are at temperature 1.0, and this run is greedy, which is much
+    easier to draft for.
+  </p>
+
+  <h3>And why it narrows under load</h3>
+  <p>
+    The gain falls from 4.70× to 2.94× to 2.61× as concurrency rises, which is
+    expected: batching already amortizes weight streaming across requests, so the
+    spare bandwidth speculation was exploiting is progressively consumed. Two things
+    are worth noting anyway — system-wide throughput still climbs (49 → 108 tok/s),
+    and TTFT <em>degrades</em> slightly under speculation (0.131 → 0.275 s). Drafting
+    cannot help prefill and adds a little per-step overhead, so if your workload is
+    dominated by short completions, measure before adopting.
+  </p>
+</section>
+
+<!-- ============ LOSSLESS ============ -->
+<section id="losslessness">
+  <h2>Is the output actually unchanged?</h2>
+  <p class="lede">
+    DFlash2 is advertised as lossless, so greedy output should match the baseline
+    exactly. It <em>almost</em> does — and the gap is not a verifier bug.
+  </p>
+  <p>
+    Diffing the generations shows a divergence at character 110 of 389, inside the
+    model's thinking block: <em>"Need concise but show reasoning."</em> versus
+    <em>"Provide reasoning."</em> Everything after <code>&lt;/think&gt;</code> — the
+    entire user-visible answer — is character-for-character identical.
+  </p>
+  <p>
+    The cause is reproducible <strong>with no drafter involved anywhere</strong>.
+    Against the plain baseline server, the same prompt at temperature 0 run alone
+    twice is identical; run inside a batch of 8 it diverges — at the same character
+    110. The engine is not bitwise-reproducible across batch shapes, because a
+    different batch shape selects different GEMM tilings and reduction orders, and
+    NVFP4's coarse quantization makes near-ties common. Speculative decoding
+    necessarily changes batch shape — it verifies N positions per forward pass
+    instead of 1 — so it inherits exactly that sensitivity.
+  </p>
+  <div class="note ok">
+    <span class="h">The guarantee, stated precisely</span>
+    DFlash2's losslessness is <em>distributional</em> and assumes exact arithmetic. It
+    does not promise bitwise-identical output under a quantized target with
+    shape-dependent kernels. The correct check is that the final answer is unchanged —
+    and it is. <code>determinism_test.py</code> in the repo demonstrates the effect
+    without any drafter.
+  </div>
+</section>
+
+<!-- ============ GOTCHAS ============ -->
+<section id="gotchas">
+  <h2>Two things that cost real time</h2>
+
+  <h3>1. A host-RAM OOM that looks like a GPU-memory bug</h3>
+  <p>
+    On first startup FlashInfer JIT-builds its NVFP4 CUTLASS GEMM
+    (<code>fp4_gemm_cutlass_sm120</code>) during <code>profile_run</code>. Left
+    unbounded, ninja fans out to <code>nproc</code> (20 here) parallel jobs, each nvcc
+    <code>cicc</code> peaking near 7 GB RSS. On unified memory that races the 22 GB of
+    resident weights, the OOM killer takes ninja, and the engine dies with a bare
+    <code>CalledProcessError … returned non-zero exit status 137</code>.
+  </p>
+  <div class="note">
+    <span class="h">The traceback lies</span>
+    It points at <code>determine_available_memory</code>, which reads like a
+    GPU-memory problem. It is not — it is <em>host</em> RAM, during kernel
+    compilation. Capping <code>MAX_JOBS</code> (<code>serve.sh</code> sets 4) fixes it.
+  </div>
+
+  <h3>2. The "unquantized LM head" requirement is gone</h3>
+  <p>
+    The DFlash2 model card and the <code>dfischermittwald/Qwen3.8-27B-NVFP4-DFlash2</code>
+    repo both warn that DFlash2 rejects a quantized target LM head:
+  </p>
+  <pre><code>ValueError: DFlash2 requires an unquantized target LM head for candidate TopK</code></pre>
+  <p>
+    That guard lived in the <strong>unmerged</strong> PR (vllm-project/vllm#52816). In
+    released 0.28.0 it is gone — <code>LogitsProcessor._apply_head</code> dispatches
+    through <code>lm_head.quant_method.apply(…)</code>, which handles a quantized head
+    fine. So the mainstream <code>unsloth</code> NVFP4 checkpoint works and the
+    specially-requantized fork is not needed. If a future version reinstates the guard,
+    that repo is a drop-in replacement for <code>TARGET</code> in <code>serve.sh</code>.
+  </p>
+</section>
+
+<!-- ============ STACK ============ -->
+<section id="stack">
+  <h2>The stack</h2>
+  <div class="scroll">
+    <table class="plain">
+      <tbody>
+        <tr><th scope="row">GPU</th><td>NVIDIA GB10 (Grace-Blackwell), compute capability 12.1 (<code>sm_121</code>), 121 GB unified memory, aarch64</td></tr>
+        <tr><th scope="row">vLLM</th><td>0.28.0 (PyPI <code>manylinux_2_28_aarch64</code> wheel)</td></tr>
+        <tr><th scope="row">PyTorch</th><td>2.13.0+cu130</td></tr>
+        <tr><th scope="row">Target model</th><td><code>unsloth/Qwen3.8-27B-NVFP4</code> — ~22 GB, NVFP4 weights, FP8 <code>lm_head</code></td></tr>
+        <tr><th scope="row">Draft model</th><td><code>z-lab/Qwen3.8-27B-DFlash2</code> — 3.85 GB, bf16</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:18px">
+    Two hardware notes. vLLM's bundled cubins target <code>sm_120</code>; CUDA
+    guarantees binary compatibility across minor revisions within a major
+    architecture, so they run on <code>sm_121</code>. And because memory is
+    <em>unified</em>, <code>--gpu-memory-utilization</code> is a fraction of the whole
+    121 GB the desktop session also lives in — it is set conservatively to 0.60.
+    NVFP4 was not optional here: bf16 weights (56 GB) do not fit the budget.
+  </p>
+</section>
+
+<!-- ============ REPRODUCE ============ -->
+<section id="reproduce">
+  <h2>Reproducing this</h2>
+  <pre><code>git clone https://github.com/madeye/qwen3.8-dflash2-gb10
+cd qwen3.8-dflash2-gb10
+./fetch_weights.sh            # ~26 GB of checkpoints
+
+./run_all.sh                  # base vs dflash at concurrency 1 / 4 / 8
+MODES="base mtp dflash" ./run_all.sh   # add Qwen3.8's built-in MTP head</code></pre>
+  <p>
+    <code>run_all.sh</code> writes per-mode JSON plus the generated text into
+    <code>results/</code> and prints the comparison table.
+    <code>check_lossless.py</code> diffs baseline against speculative output, and
+    <code>determinism_test.py</code> reproduces the batch-shape sensitivity described
+    above with no drafter in the loop.
+  </p>
+</section>
+
+<footer>
+  <span>MIT licensed — the harness is original work; the models carry their own upstream licenses.</span>
+  <span><a href="https://github.com/madeye/qwen3.8-dflash2-gb10">github.com/madeye/qwen3.8-dflash2-gb10</a></span>
+</footer>
+
+</div>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  var tip = document.getElementById('tip');
+  var bars = document.querySelectorAll('.bar');
+
+  function show(e) {
+    var el = e.currentTarget;
+    tip.innerHTML = '<div class="t"></div><div class="r"></div>';
+    tip.querySelector('.t').textContent = el.getAttribute('data-t');
+    tip.querySelector('.r').textContent = el.getAttribute('data-r');
+    tip.style.opacity = '1';
+    move(e);
+  }
+  function move(e) {
+    var pad = 14;
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var x = e.clientX + pad, y = e.clientY + pad;
+    if (x + w > window.innerWidth - 8) x = e.clientX - w - pad;
+    if (y + h > window.innerHeight - 8) y = e.clientY - h - pad;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  }
+  function hide() { tip.style.opacity = '0'; }
+
+  for (var i = 0; i < bars.length; i++) {
+    bars[i].addEventListener('mouseenter', show);
+    bars[i].addEventListener('mousemove', move);
+    bars[i].addEventListener('mouseleave', hide);
+  }
+})();
+</script>
+</body>
+</html>
