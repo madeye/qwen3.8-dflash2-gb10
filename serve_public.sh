@@ -12,6 +12,10 @@ cd "$(dirname "$0")"
 
 MODE="${1:-dflash}"
 PORT="${PORT:-8000}"              # vLLM, loopback only
+# Agent clients need real context: Hermes refuses anything under 64K, and a
+# coding agent burns 32K on file reads alone. The benchmark keeps serve.sh's
+# 32768 so its published numbers stay comparable; serving is a different job.
+MAXLEN="${MAXLEN:-131072}"
 GW_PORT="${GW_PORT:-8080}"        # gateway, public
 GW_HOST="${GW_HOST:-0.0.0.0}"
 SCRATCH="${SCRATCH:-/tmp}"
@@ -36,7 +40,7 @@ else
   rm -f "$PIDF"
   echo "starting vLLM ($MODE) on 127.0.0.1:${PORT}, log $LOG"
   # TOOLS=1: serving is for real clients, which need tool calling and the <think> split.
-  HOST=127.0.0.1 PORT="$PORT" SCRATCH="$SCRATCH" TOOLS="${TOOLS:-1}" \
+  HOST=127.0.0.1 PORT="$PORT" SCRATCH="$SCRATCH" TOOLS="${TOOLS:-1}" MAXLEN="$MAXLEN" \
     setsid ./serve.sh "$MODE" </dev/null >/dev/null 2>&1 &
   for _ in $(seq 1 30); do [ -s "$PIDF" ] && break; sleep 1; done
   ./wait_ready.sh "$LOG" "$PORT" "${READY_TIMEOUT:-2400}" || { echo "vLLM failed to start"; exit 1; }

@@ -109,6 +109,12 @@ That diff is expected to show a *small* divergence, and it does -- see
 GW_PORT=9000 ./serve_public.sh
 ```
 
+`serve_public.sh` serves a 131072-token window (`MAXLEN`), not `serve.sh`'s
+benchmark default of 32768: agent clients need real context — Hermes refuses
+any model under 64K outright, and a coding agent spends 32K on file reads
+alone. The KV pool is sized by `--gpu-memory-utilization`, not by this, so it
+costs nothing: 829,385 KV tokens, 6.33× concurrency at full length.
+
 vLLM is pinned to `127.0.0.1`; only `gateway.py` faces the network. It proxies
 `/v1/*` and `/metrics`, requires `Authorization: Bearer <key>` on every one of
 them, and 404s everything else — vLLM's other routes (`/tokenize`, `/sleep`,
@@ -182,7 +188,7 @@ so it is outside uv's scope; `~/.pi/agent/models.json` holds the wiring:
   "apiKey": "<a key from the dashboard>",
   "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
   "models": [ { "id": "qwen3.8-27b", "reasoning": true,
-                "contextWindow": 32768, "maxTokens": 8192 } ] } } }
+                "contextWindow": 131072, "maxTokens": 8192 } ] } } }
 ```
 
 ```bash
