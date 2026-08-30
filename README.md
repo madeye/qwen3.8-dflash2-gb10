@@ -117,11 +117,14 @@ alone. 262144 is also the ceiling: it is the checkpoint's
 section, so vLLM refuses a larger `max_model_len` outright.
 
 This one does cost something. `serve.sh` caps the KV pool at 24 GiB
-(`KV_BYTES`), which buys roughly 1.8 concurrent requests at full length — down
-from the 6.33× the uncapped pool gave at 128K. Budget ~52 KiB per token: the
-16 full-attention layers are 32 KiB/token at fp8 and the hybrid allocator's
-page alignment accounts for the rest. Raise `KV_BYTES` if you want the
-concurrency back; memory profiling found 41.28 GiB free at `UTIL=0.60`. The
+(`KV_BYTES`), which measures 544,617 KV tokens — 2.08× concurrency at full
+length, down from the 6.33× the uncapped pool gave at 128K. Budget ~46 KiB per
+token (47,317 B measured): the 16 full-attention layers are 32 KiB/token at
+fp8 and the hybrid allocator's page alignment accounts for the rest. Raise
+`KV_BYTES` if you want more concurrency, but deliberately: setting it makes
+vLLM skip memory profiling altogether and ignore `gpu-memory-utilization` for
+KV, so the only ceiling is real free memory (111.83 GiB at startup here) — the
+`UTIL` guard that keeps the desktop session alive does not apply to it. The
 exact pool is printed on startup (`GPU KV cache size: ... Maximum
 concurrency`).
 
