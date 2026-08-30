@@ -12,20 +12,33 @@ export PATH="$(pwd)/.venv/bin:$PATH"   # vLLM shells out to ninja/gcc for JIT ke
 export MAX_JOBS="${MAX_JOBS:-4}"       # honored by flashinfer/jit/cpp_ext.py:_get_num_workers
 MODE="${1:-base}"
 PORT="${PORT:-8000}"
+HOST="${HOST:-0.0.0.0}"   # serve_public.sh pins this to loopback and fronts it with gateway.py
 MAXLEN="${MAXLEN:-32768}"
 UTIL="${UTIL:-0.60}"
 NSPEC="${NSPEC:-7}"
+# Tool calling + reasoning split. Off by default: the benchmark measures raw decode,
+# and --reasoning-parser moves <think> text from content into reasoning_content,
+# which would change what bench.py records. serve_public.sh turns it on, because an
+# agent client (pi, etc.) gets a 400 from /v1/chat/completions without it.
+TOOLS="${TOOLS:-0}"
 SCRATCH=${SCRATCH:-/tmp/claude-1000/-home-mlv-workspace-qwen3-8/a90c22ea-64ba-4da0-b5e2-503d64c0f49a/scratchpad}
 LOG="${LOG:-$SCRATCH/vllm_${MODE}.log}"
 
 TARGET=./models/Qwen3.8-27B-NVFP4
 ARGS=(
   "$TARGET"
+  --host "$HOST"
   --port "$PORT"
   --served-model-name qwen3.8-27b
   --max-model-len "$MAXLEN"
   --gpu-memory-utilization "$UTIL"
 )
+
+if [ "$TOOLS" = "1" ]; then
+  # qwen3_xml and qwen3_coder are the same Qwen3EngineToolParser; the checkpoint's
+  # chat template emits <tool_call> XML, which is what it parses.
+  ARGS+=( --enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3 )
+fi
 
 case "$MODE" in
   base)   ;;
