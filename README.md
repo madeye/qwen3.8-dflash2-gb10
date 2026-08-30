@@ -56,7 +56,10 @@ drop-in replacement for `TARGET` in `serve.sh`.
 
 | File | Purpose |
 | --- | --- |
+| `pyproject.toml` / `uv.lock` | Dependency set, pinned and locked (uv) |
 | `serve.sh` | Launch vLLM in `base` / `mtp` / `dflash` mode |
+| `serve_public.sh` | Serve on a public address behind the auth gateway |
+| `gateway.py` | Auth proxy + dashboard for API URL and API keys |
 | `wait_ready.sh` | Poll `/health`, fail fast on a crashed server |
 | `bench.py` | Streaming client: TTFT, TPOT, throughput, acceptance length |
 | `compare.py` | Side-by-side table from the JSON reports |
@@ -65,6 +68,26 @@ drop-in replacement for `TARGET` in `serve.sh`.
 | `determinism_test.py` | Shows the baseline alone is batch-shape sensitive |
 | `restart-llama-server.sh` | Restores the pre-existing llama.cpp server verbatim |
 | `results/` | Per-mode JSON, generated text, and `summary.txt` |
+
+## Setup
+
+Dependencies are managed with [uv](https://docs.astral.sh/uv/); `pyproject.toml`
+declares them and `uv.lock` pins the full 203-package closure (torch 2.13.0+cu130
+and flashinfer come in transitively through vLLM).
+
+```bash
+uv sync              # create/refresh .venv from the lock
+./fetch_weights.sh   # ~22 GB of NVFP4 weights
+```
+
+`uv run <script>` syncs first, so `uv run bench.py …` always runs against the
+locked environment. The scripts call `.venv/bin/python` directly, which is the
+same interpreter.
+
+One cosmetic quirk: every `uv sync` re-links `nvidia-cusparselt-cu13`. NVIDIA
+ships that wheel with a filename tag of `manylinux2014_aarch64` but an internal
+`WHEEL` tag of `manylinux2014_sbsa`, so uv's installed-state check never
+matches. It is the wheel the lock names, and the re-link takes ~2 ms.
 
 ## Running
 
@@ -81,6 +104,117 @@ and `check_lossless.py` diffs them.
 
 That diff is expected to show a *small* divergence, and it does -- see
 "Losslessness" below. Read it before treating a mismatch as a bug.
+
+## Serving it publicly
+
+```bash
+./serve_public.sh            # dflash + gateway on 0.0.0.0:8080
+./serve_public.sh base       # baseline instead
+GW_PORT=9000 ./serve_public.sh
+```
+
+`serve_public.sh` serves a 262144-token window (`MAXLEN`), not `serve.sh`'s
+benchmark default of 32768: agent clients need real context — Hermes refuses
+any model under 64K outright, and a coding agent spends 32K on file reads
+alone. 262144 is also the ceiling: it is the checkpoint's
+`max_position_embeddings`, and the rope config is plain mrope with no YaRN
+section, so vLLM refuses a larger `max_model_len` outright.
+
+This one does cost something. `serve.sh` caps the KV pool at 24 GiB
+(`KV_BYTES`), which measures 544,617 KV tokens — 2.08× concurrency at full
+length, down from the 6.33× the uncapped pool gave at 128K. Budget ~46 KiB per
+token (47,317 B measured): the 16 full-attention layers are 32 KiB/token at
+fp8 and the hybrid allocator's page alignment accounts for the rest. Raise
+`KV_BYTES` if you want more concurrency, but deliberately: setting it makes
+vLLM skip memory profiling altogether and ignore `gpu-memory-utilization` for
+KV, so the only ceiling is real free memory (111.83 GiB at startup here) — the
+`UTIL` guard that keeps the desktop session alive does not apply to it. The
+exact pool is printed on startup (`GPU KV cache size: ... Maximum
+concurrency`).
+
+vLLM is pinned to `127.0.0.1`; only `gateway.py` faces the network. It proxies
+`/v1/*` and `/metrics`, requires `Authorization: Bearer <key>` on every one of
+them, and 404s everything else — vLLM's other routes (`/tokenize`, `/sleep`,
+the shutdown endpoints) never reach the public interface. Streaming passes
+through chunk-by-chunk, so SSE latency is unaffected.
+
+Keys live in the gateway rather than in vLLM's argv, which is the point:
+rotating one takes effect on the next request instead of reloading 22 GB of
+weights. Startup prints the dashboard URL with its admin token:
+
+```
+gateway    0.0.0.0:8080  ->  http://127.0.0.1:8000
+api base   http://192.168.0.4:8080/v1
+dashboard  http://192.168.0.4:8080/?token=<admin token>
+```
+
+The dashboard shows upstream health and the served model, lets you edit the
+advertised API base URL (override it if you front the gateway with a tunnel or
+domain), and manages keys — create, label, reveal, copy, rotate, revoke, with
+per-key request counts and last-used times. It also renders a ready-to-paste
+curl and OpenAI-SDK snippet. State lives in `gateway.json` (mode 0600,
+gitignored); the admin token is generated on first run and persists there.
+
+If vLLM itself is started with `--api-key`, pass the same value as
+`--upstream-key` — the gateway terminates the client's credential at the
+boundary and presents that one upstream instead of forwarding it.
+
+#### Getting and setting keys
+
+Three equivalent routes, in rough order of convenience:
+
+```bash
+# the dashboard: show / copy / rotate / revoke, per key
+python3 -c "import json;d=json.load(open('gateway.json'));\
+print(f\"http://127.0.0.1:8080/?token={d['admin_token']}\")"
+
+# the admin API
+curl -s -H "X-Admin-Token: $TOK" localhost:8080/admin/state          # list
+curl -s -H "X-Admin-Token: $TOK" -d '{"label":"laptop"}' \
+     -H 'Content-Type: application/json' localhost:8080/admin/keys   # create
+curl -s -H "X-Admin-Token: $TOK" -d '{}' \
+     localhost:8080/admin/keys/<id>/rotate                           # rotate
+
+# or just edit gateway.json -- the only way to set a *chosen* value,
+# since the dashboard and API only generate random ones
+```
+
+`gateway.json` is re-read within a second of changing, so a hand-edited key,
+`public_url`, or `admin_token` takes effect on the next request with no restart.
+Per-key request counters are preserved across a reload, an unparseable file is
+ignored (and warned about once) rather than crashing the gateway, and emptying
+the `keys` list regenerates one instead of locking everyone out.
+
+Rotating still means updating whichever clients hold the old key —
+`~/.pi/agent/models.json` below keeps its own copy.
+
+**This is bearer auth over plain HTTP.** It is enough for a trusted LAN. Before
+exposing it further, put TLS in front of it — a Cloudflare tunnel, Tailscale, or
+a reverse proxy — and set the dashboard's API base URL to that public address.
+
+### Driving it with the pi coding agent
+
+[pi](https://github.com/earendil-works/pi) (`@earendil-works/pi-coding-agent`)
+talks to the gateway as an ordinary OpenAI-compatible provider. It is a Node CLI,
+so it is outside uv's scope; `~/.pi/agent/models.json` holds the wiring:
+
+```json
+{ "providers": { "local-vllm": {
+  "baseUrl": "http://127.0.0.1:8080/v1",
+  "api": "openai-completions",
+  "apiKey": "<a key from the dashboard>",
+  "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
+  "models": [ { "id": "qwen3.8-27b", "reasoning": true,
+                "contextWindow": 262144, "maxTokens": 8192 } ] } } }
+```
+
+```bash
+pi --provider local-vllm --model qwen3.8-27b
+```
+
+The `compat` pair matters: vLLM's OpenAI layer rejects the `developer` role and
+`reasoning_effort` that pi sends to reasoning-capable models by default. Rotating
+the key in the dashboard means updating `apiKey` here to match.
 
 ## Metrics
 

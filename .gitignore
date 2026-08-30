@@ -8,3 +8,10 @@ __pycache__/
 
 # Server logs
 *.log
+
+# Gateway API keys and admin token
+gateway.json
+gateway.tmp
+
+# Claude Code session dir (holds git worktrees)
+.claude/

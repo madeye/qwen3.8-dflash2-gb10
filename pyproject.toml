@@ -1,0 +1,22 @@
+[project]
+name = "qwen38-dflash2-bench"
+version = "0.1.0"
+description = "Benchmark harness for DFlash2 speculative decoding on Qwen3.8-27B-NVFP4 (DGX Spark / GB10)"
+readme = "README.md"
+license = "MIT"
+requires-python = "==3.12.*"
+
+dependencies = [
+    # Serving engine. Pinned: 0.28.0 is the first release where
+    # LogitsProcessor._apply_head dispatches through the quant method, which is
+    # what makes DFlash2 work against the NVFP4 target (see README).
+    # Pulls torch 2.13.0+cu130 and flashinfer-python 0.6.16.post3 transitively.
+    "vllm==0.28.0",
+    # Imported directly by the harness, not only via vllm.
+    "aiohttp>=3.14.3",      # bench.py, determinism_test.py
+    "huggingface-hub>=1.29.0",  # dl.py, dl_nvfp4.py
+]
+
+[tool.uv]
+# Scripts, not an installable package -- nothing to build.
+package = false
