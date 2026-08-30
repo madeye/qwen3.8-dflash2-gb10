@@ -15,7 +15,13 @@ PORT="${PORT:-8000}"              # vLLM, loopback only
 # Agent clients need real context: Hermes refuses anything under 64K, and a
 # coding agent burns 32K on file reads alone. The benchmark keeps serve.sh's
 # 32768 so its published numbers stay comparable; serving is a different job.
-MAXLEN="${MAXLEN:-131072}"
+#
+# 262144 is the ceiling, not a preference: it's the checkpoint's
+# max_position_embeddings, and its rope_type is plain mrope with no YaRN
+# section, so vLLM derives that as the hard max_model_len. Asking for more
+# needs VLLM_ALLOW_LONG_MAX_MODEL_LEN=1, which doesn't extend the model --
+# it just extrapolates RoPE past training. Don't.
+MAXLEN="${MAXLEN:-262144}"
 GW_PORT="${GW_PORT:-8080}"        # gateway, public
 GW_HOST="${GW_HOST:-0.0.0.0}"
 SCRATCH="${SCRATCH:-/tmp}"

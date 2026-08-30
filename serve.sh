@@ -15,6 +15,10 @@ PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"   # serve_public.sh pins this to loopback and fronts it with gateway.py
 MAXLEN="${MAXLEN:-32768}"
 UTIL="${UTIL:-0.60}"
+# Hard cap on KV cache per GPU (24 GiB). When set, vLLM sizes the KV cache from
+# this and ignores gpu-memory-utilization for that purpose (util still bounds
+# weights + activations). 25769803776 = 24 * 2^30.
+KV_BYTES="${KV_BYTES:-25769803776}"
 NSPEC="${NSPEC:-7}"
 # Tool calling + reasoning split. Off by default: the benchmark measures raw decode,
 # and --reasoning-parser moves <think> text from content into reasoning_content,
@@ -32,6 +36,8 @@ ARGS=(
   --served-model-name qwen3.8-27b
   --max-model-len "$MAXLEN"
   --gpu-memory-utilization "$UTIL"
+  --kv-cache-dtype fp8_e4m3
+  --kv-cache-memory-bytes "$KV_BYTES"
 )
 
 if [ "$TOOLS" = "1" ]; then

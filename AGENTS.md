@@ -51,6 +51,21 @@ package to build or install.
   GPU OOM.
 - `--gpu-memory-utilization 0.60` is intentional: the denominator is the whole
   121 GB that the desktop session also lives in.
+- `serve.sh` passes `--kv-cache-dtype fp8_e4m3` (halves KV memory, buys room for
+  the 256K public context) and caps the KV cache at 24 GiB via
+  `--kv-cache-memory-bytes` (`KV_BYTES` env to override; when set, vLLM ignores
+  `gpu-memory-utilization` for KV sizing). The published `results/` numbers
+  predate this — rerun `run_all.sh` before comparing new benchmarks against
+  them.
+- **256K is the context ceiling.** `config.json` sets
+  `text_config.max_position_embeddings: 262144` with plain mrope
+  (`rope_type: "default"`, no YaRN), so vLLM derives 262144 as the max
+  `max_model_len` and rejects anything larger. `VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`
+  only silences the check and extrapolates RoPE past training -- not a way to
+  get 512K. Budget ~52 KiB/token when sizing `KV_BYTES`: the 16 full-attention
+  layers cost 32 KiB/token at fp8 (4 KV heads x 256 head_dim), and the hybrid
+  allocator adds the rest as padding (block size forced to 1648 to match the
+  mamba page, plus the padding-layer waste the startup log warns about).
 - vLLM's cubins are `sm_120`; they run on `sm_121` by CUDA minor-revision
   compatibility. Fine, don't "fix" it.
 - NVFP4 is mandatory here (bf16 weights ≈ 56 GB won't fit).

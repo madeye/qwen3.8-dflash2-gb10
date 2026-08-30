@@ -109,11 +109,21 @@ That diff is expected to show a *small* divergence, and it does -- see
 GW_PORT=9000 ./serve_public.sh
 ```
 
-`serve_public.sh` serves a 131072-token window (`MAXLEN`), not `serve.sh`'s
+`serve_public.sh` serves a 262144-token window (`MAXLEN`), not `serve.sh`'s
 benchmark default of 32768: agent clients need real context — Hermes refuses
 any model under 64K outright, and a coding agent spends 32K on file reads
-alone. The KV pool is sized by `--gpu-memory-utilization`, not by this, so it
-costs nothing: 829,385 KV tokens, 6.33× concurrency at full length.
+alone. 262144 is also the ceiling: it is the checkpoint's
+`max_position_embeddings`, and the rope config is plain mrope with no YaRN
+section, so vLLM refuses a larger `max_model_len` outright.
+
+This one does cost something. `serve.sh` caps the KV pool at 24 GiB
+(`KV_BYTES`), which buys roughly 1.8 concurrent requests at full length — down
+from the 6.33× the uncapped pool gave at 128K. Budget ~52 KiB per token: the
+16 full-attention layers are 32 KiB/token at fp8 and the hybrid allocator's
+page alignment accounts for the rest. Raise `KV_BYTES` if you want the
+concurrency back; memory profiling found 41.28 GiB free at `UTIL=0.60`. The
+exact pool is printed on startup (`GPU KV cache size: ... Maximum
+concurrency`).
 
 vLLM is pinned to `127.0.0.1`; only `gateway.py` faces the network. It proxies
 `/v1/*` and `/metrics`, requires `Authorization: Bearer <key>` on every one of
@@ -188,7 +198,7 @@ so it is outside uv's scope; `~/.pi/agent/models.json` holds the wiring:
   "apiKey": "<a key from the dashboard>",
   "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
   "models": [ { "id": "qwen3.8-27b", "reasoning": true,
-                "contextWindow": 131072, "maxTokens": 8192 } ] } } }
+                "contextWindow": 262144, "maxTokens": 8192 } ] } } }
 ```
 
 ```bash
